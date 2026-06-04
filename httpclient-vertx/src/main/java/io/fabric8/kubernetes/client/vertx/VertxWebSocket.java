@@ -53,11 +53,16 @@ class VertxWebSocket implements WebSocket {
       listener.onMessage(this, msg.getByteBuf().nioBuffer());
     });
     ws.textMessageHandler(msg -> {
+      logger.debug("textMessage received ({} bytes): {}", msg.length(),
+          msg.length() > 300 ? msg.substring(0, 300) + "..." : msg);
       ws.pause();
       listener.onMessage(this, msg);
     });
     // use end, not close, because close is processed immediately vs. end is in frame order
-    ws.endHandler(v -> listener.onClose(this, ws.closeStatusCode(), ws.closeReason()));
+    ws.endHandler(v -> {
+      logger.debug("endHandler: closeCode={} closeReason={}", ws.closeStatusCode(), ws.closeReason());
+      listener.onClose(this, ws.closeStatusCode(), ws.closeReason());
+    });
     ws.exceptionHandler(err -> {
       try {
         if (err instanceof CorruptedWebSocketFrameException) {

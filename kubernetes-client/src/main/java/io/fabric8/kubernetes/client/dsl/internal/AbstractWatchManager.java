@@ -405,6 +405,8 @@ public abstract class AbstractWatchManager<T extends HasMetadata> implements Wat
           WatchEvent event = contextAwareWatchEventDeserializer(message);
           Object object = event.getObject();
           Action action = Action.valueOf(event.getType());
+          logger.debug("onMessage action={} type={}", action,
+              object instanceof Status ? "Status(code=" + ((Status) object).getCode() + ")" : (object != null ? object.getClass().getSimpleName() : "null"));
           if (action == Action.ERROR) {
             if (object instanceof Status) {
               Status status = (Status) object;
