@@ -98,10 +98,15 @@ public abstract class AbstractWatchManager<T extends HasMetadata> implements Wat
     final AtomicBoolean closed = new AtomicBoolean();
     final CompletableFuture<Void> ended = new CompletableFuture<>();
     final AtomicBoolean started = new AtomicBoolean();
+    final AtomicBoolean messageReceived = new AtomicBoolean();
+    long startedAtMs;
   }
 
   private static final Logger logger = LoggerFactory.getLogger(AbstractWatchManager.class);
   private static final int INFO_LOG_CONNECTION_ERRORS = 10;
+  // Max connection lifetime (ms) under which a zero-message clean close is treated as a stale
+  // resourceVersion rejection. GKE closes within ~100ms; legitimate idle closes take much longer.
+  private static final long STALE_RV_CLOSE_THRESHOLD_MS = 2_000;
 
   final Watcher<T> watcher;
   final AtomicReference<String> resourceVersion;
@@ -320,6 +325,7 @@ public abstract class AbstractWatchManager<T extends HasMetadata> implements Wat
 
     closeRequest(); // only one can be active at a time
     latestRequestState = new WatchRequestState();
+    latestRequestState.startedAtMs = System.currentTimeMillis();
     start(url, headers, latestRequestState);
   }
 
@@ -358,6 +364,7 @@ public abstract class AbstractWatchManager<T extends HasMetadata> implements Wat
     if (state.closed.get() || forceClosed.get()) {
       return;
     }
+    state.messageReceived.set(true);
     try {
       WatchEvent event = contextAwareWatchEventDeserializer(message);
       Object object = event.getObject();
@@ -411,6 +418,18 @@ public abstract class AbstractWatchManager<T extends HasMetadata> implements Wat
 
   void watchEnded(Throwable t, WatchRequestState state) {
     state.ended.complete(null);
+    // When a watch closes cleanly (code 1000, no body) with zero messages and very quickly,
+    // treat it as a silent stale-resourceVersion rejection. This compensates for a GKE-specific
+    // behaviour on v1/events where the GKFE proxy sends a bare close instead of the standard
+    // {"type":"ERROR","code":410} — causing AbstractWatchManager to loop with the same stale rv.
+    // The time-bound avoids invalidating a valid rv on legitimate idle-period disconnects.
+    // See: https://github.com/kubernetes/kubernetes/issues/137089
+    long connectionAgeMs = System.currentTimeMillis() - state.startedAtMs;
+    if (t == null && !state.messageReceived.get() && connectionAgeMs < STALE_RV_CLOSE_THRESHOLD_MS) {
+      logger.debug("Watch ended cleanly with no messages after {}ms — resetting resourceVersion to force re-list",
+          connectionAgeMs);
+      resourceVersion.set(null);
+    }
     if (state != latestRequestState) {
       // should not happen, but there is already some mitigation logic in the jetty client,
       // so we'll guard against an erroneous error after the logical close which would cause
