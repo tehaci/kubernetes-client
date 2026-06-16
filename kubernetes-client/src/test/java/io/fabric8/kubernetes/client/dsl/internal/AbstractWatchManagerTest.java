@@ -263,6 +263,57 @@ class AbstractWatchManagerTest {
   }
 
   @Test
+  @DisplayName("watchEnded, clean close with no messages within 2s, emits WatcherException (GKE stale-rv bug)")
+  void watchEndedEmitsWatcherExceptionOnQuickCleanClose() throws MalformedURLException {
+    // Given
+    final WatcherAdapter<HasMetadata> watcher = new WatcherAdapter<>();
+    final WatchManager<HasMetadata> awm = withDefaultWatchManager(watcher);
+    WatchRequestState state = new WatchRequestState();
+    state.startedAtMs = System.currentTimeMillis(); // simulates GKE: connection rejected immediately
+    awm.latestRequestState = state;
+    // When - clean close (t=null), zero messages, within the 2s threshold
+    awm.watchEnded(null, state);
+    // Then - watch must be force-closed via WatcherException, not silently reconnected
+    assertThat(awm.isForceClosed()).isTrue();
+    assertThat(watcher.closeWithCauseCount.get()).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("watchEnded, clean close with no messages but connection was old, schedules reconnect normally")
+  void watchEndedSchedulesReconnectOnOldCleanClose() throws MalformedURLException {
+    // Given
+    final WatcherAdapter<HasMetadata> watcher = new WatcherAdapter<>();
+    final WatchManager<HasMetadata> awm = withDefaultWatchManager(watcher);
+    WatchRequestState state = new WatchRequestState();
+    state.startedAtMs = System.currentTimeMillis() - 5_000; // connection alive for 5s — legitimate idle disconnect
+    awm.latestRequestState = state;
+    // When - clean close (t=null), zero messages, but connection was alive well past the 2s threshold
+    awm.watchEnded(null, state);
+    // Then - normal reconnect, no WatcherException
+    assertThat(awm.isForceClosed()).isFalse();
+    assertThat(state.reconnected.get()).isTrue();
+    assertThat(watcher.closeWithCauseCount.get()).isEqualTo(0);
+  }
+
+  @Test
+  @DisplayName("watchEnded, clean close with messages received, schedules reconnect normally")
+  void watchEndedSchedulesReconnectWhenMessagesReceived() throws MalformedURLException {
+    // Given
+    final WatcherAdapter<HasMetadata> watcher = new WatcherAdapter<>();
+    final WatchManager<HasMetadata> awm = withDefaultWatchManager(watcher);
+    WatchRequestState state = new WatchRequestState();
+    state.startedAtMs = System.currentTimeMillis(); // fresh connection
+    state.messageReceived.set(true); // but messages were received — rv was accepted
+    awm.latestRequestState = state;
+    // When - clean close (t=null), messages received, within the 2s threshold
+    awm.watchEnded(null, state);
+    // Then - normal reconnect, no WatcherException
+    assertThat(awm.isForceClosed()).isFalse();
+    assertThat(state.reconnected.get()).isTrue();
+    assertThat(watcher.closeWithCauseCount.get()).isEqualTo(0);
+  }
+
+  @Test
   @DisplayName("onMessage, enqueues body on the SerialExecutor instead of running it on the caller thread")
   void onMessageEnqueuesBodyOnSerialExecutor() throws MalformedURLException {
     // Given a watch manager whose SerialExecutor uses a capture executor that does not run tasks
@@ -355,6 +406,7 @@ class AbstractWatchManagerTest {
 
   private static class WatcherAdapter<T> implements Watcher<T> {
     private final AtomicInteger closeCount = new AtomicInteger(0);
+    private final AtomicInteger closeWithCauseCount = new AtomicInteger(0);
 
     @Override
     public void eventReceived(Action action, T resource) {
@@ -363,6 +415,7 @@ class AbstractWatchManagerTest {
     @Override
     public void onClose(WatcherException cause) {
       closeCount.addAndGet(1);
+      closeWithCauseCount.addAndGet(1);
     }
 
     @Override

@@ -99,10 +99,15 @@ public abstract class AbstractWatchManager<T extends HasMetadata> implements Wat
     final AtomicBoolean closed = new AtomicBoolean();
     final CompletableFuture<Void> ended = new CompletableFuture<>();
     final AtomicBoolean started = new AtomicBoolean();
+    final AtomicBoolean messageReceived = new AtomicBoolean();
+    long startedAtMs;
   }
 
   private static final Logger logger = LoggerFactory.getLogger(AbstractWatchManager.class);
   private static final int INFO_LOG_CONNECTION_ERRORS = 10;
+  // Max connection lifetime (ms) under which a zero-message clean close is treated as a stale
+  // resourceVersion rejection. GKE closes within ~100ms; legitimate idle closes take much longer.
+  private static final long STALE_RV_CLOSE_THRESHOLD_MS = 2_000;
 
   final Watcher<T> watcher;
   // Serializes both the message-deserialization+dispatch task (queued from onMessage) and the
@@ -335,6 +340,7 @@ public abstract class AbstractWatchManager<T extends HasMetadata> implements Wat
 
     closeRequest(); // only one can be active at a time
     latestRequestState = new WatchRequestState();
+    latestRequestState.startedAtMs = System.currentTimeMillis();
     start(url, headers, latestRequestState);
   }
 
@@ -401,6 +407,7 @@ public abstract class AbstractWatchManager<T extends HasMetadata> implements Wat
         if (state.closed.get() || forceClosed.get()) {
           return;
         }
+        state.messageReceived.set(true);
         try {
           WatchEvent event = contextAwareWatchEventDeserializer(message);
           Object object = event.getObject();
@@ -478,6 +485,22 @@ public abstract class AbstractWatchManager<T extends HasMetadata> implements Wat
       if (t != null) {
         logger.debug("Watch error received after the next watch started", t);
       }
+      return;
+    }
+    // When a watch closes cleanly (code 1000, no body) with zero messages within a very short
+    // window, treat it as a silent stale-resourceVersion rejection. This compensates for a
+    // GKE-specific behaviour on v1/events where the GKFE proxy sends a bare close instead of
+    // the standard {"type":"ERROR","code":410} response, causing the watch to loop indefinitely
+    // with the same stale resourceVersion. Emitting a WatcherException mirrors the ProtocolException
+    // path and lets the caller (e.g. an informer) decide how to recover.
+    // See: https://github.com/kubernetes/kubernetes/issues/137089
+    long connectionAgeMs = System.currentTimeMillis() - state.startedAtMs;
+    if (t == null && !state.messageReceived.get() && connectionAgeMs < STALE_RV_CLOSE_THRESHOLD_MS) {
+      logger.debug("Watch ended cleanly with no messages after {}ms — treating as stale resourceVersion rejection",
+          connectionAgeMs);
+      close(new WatcherException(
+          "Watch connection was closed by the server without sending any message within " + connectionAgeMs
+              + "ms. The server may have rejected the resourceVersion as too old (see https://github.com/kubernetes/kubernetes/issues/137089)"));
       return;
     }
     if (t instanceof ProtocolException) {
