@@ -89,7 +89,7 @@
 
     <!-- Core versions -->
     <sundrio.version>0.230.2</sundrio.version>
-    <okhttp.version>5.3.2</okhttp.version>
+    <okhttp.version>5.4.0</okhttp.version>
     <jackson.version>2.21.4</jackson.version>
     <jackson.bundle.version>${jackson.version}</jackson.bundle.version>
     <!-- fix as jackson-annotations version 2.20 was released, Refer: https://github.com/FasterXML/jackson-bom/blob/54f854ba1ce69c5827f8acf6d08ba2d7ce36233c/pom.xml#L53-L62 -->
@@ -99,7 +99,7 @@
     <maven-plugin-annotations.version>3.15.2</maven-plugin-annotations.version>
     <vertx.version>4.5.28</vertx.version>
     <vertx5.version>5.1.1</vertx5.version>
-    <jandex.version>3.5.3</jandex.version>
+    <jandex.version>3.6.0</jandex.version>
     <snakeyaml.version>3.0.1</snakeyaml.version>
     <snakeyaml.bundle.version>2.5</snakeyaml.bundle.version> <!-- Transitive Jackson -->
 
@@ -117,7 +117,7 @@
     <bouncycastle.version>1.84</bouncycastle.version>
     <bc-fips.version>2.1.2</bc-fips.version>
     <bcpkix-fips.version>2.1.11</bcpkix-fips.version>
-    <keycloak.version>26.6.2</keycloak.version><!-- Used by CRD Generator integration tests for verifications -->
+    <keycloak.version>26.6.3</keycloak.version><!-- Used by CRD Generator integration tests for verifications -->
     <mockito.version>5.23.0</mockito.version>
     <spock.version>2.4-M6-groovy-4.0</spock.version>
 
@@ -161,7 +161,7 @@
     <maven.plugin.plugin.version>3.15.2</maven.plugin.plugin.version>
     <gmavenplus-plugin.version>5.0.0</gmavenplus-plugin.version>
     <gradle-api-maven-plugin.version>0.0.7</gradle-api-maven-plugin.version>
-    <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
+    <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
     <jkube.version>1.19.0</jkube.version>
     <sonar-maven-plugin.version>5.7.0.6970</sonar-maven-plugin.version>
     <central-publishing-maven-plugin>0.10.0</central-publishing-maven-plugin>

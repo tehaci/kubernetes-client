@@ -3,6 +3,8 @@
 ### 7.8-SNAPSHOT
 
 #### Bugs
+* Fix #7896: (kubernetes-client) `AbstractWatchManager.watchEnded()` now emits a `WatcherException` when a watch closes cleanly with no messages within 2 seconds, compensating for a GKE-specific behaviour on `v1/events` where the GKFE proxy rejects a stale `resourceVersion` with a bare WebSocket close (code 1000, no body) instead of `{"type":"ERROR","code":410}`, causing an indefinite reconnect loop with the same stale resourceVersion
+* Fix #7907: (httpclient-vertx-5) WebSocket-over-TLS operations (`exec`/`attach`/`portForward`/WebSocket-backed watches, and the CRD-establishment waits that depend on them) now trust the cluster certificate again. Vert.x 5.1 rewrote the WebSocket client to resolve TLS through a per-connection `ClientSSLOptions` that ignored the custom `SslContextFactory` the client used as its sole carrier of trust material, so WebSocket handshakes silently fell back to the default JVM trust store, failed PKIX validation, and hung to the client-side timeout (regular HTTPS request/response was unaffected). Both the HTTP and WebSocket clients are now configured uniformly with Vert.x `TrustOptions`/`KeyCertOptions` derived from the supplied trust/key managers
 * Fix #7873: (kube-api-test) `Utils.findFreePort` now records every port it hands out for the JVM's lifetime and skips any port already returned, eliminating the back-to-back duplicate-port window that surfaced as a `JUnitExtensionOnMethodTest.simpleTest2` flake — the probe `ServerSocket` was closed before the caller bound it, so `EtcdProcess.startEtcd()` and `KubeAPIServerProcess.startApiServer()` could draw the same port from `Random.nextInt`, etcd would win the bind, and apiserver would exit 1 with `bind: address already in use`, surfacing in `ProcessReadinessChecker` as `Connection reset by peer`
 * Fix #7857: (kubernetes-server-mock) `WatchEventsListener.onClosing` now queues the server-side `WebSocket.close(...)` on the listener's send executor instead of invoking it directly on the Vert.x event loop. This preserves FIFO ordering with any data frames already queued on that executor, so events scheduled before a client-initiated watch close (e.g. an `ADDED`/`DELETED` pair on a final `create`/`delete` before `watch.close()`) are delivered before the close frame instead of being silently dropped by writes against an already-closing socket
 * Fix #7832: (sonar) Re-interrupt thread in 8 production-code catch blocks that swallowed `InterruptedException` without preserving the interrupt status (S2142)
@@ -20,6 +22,7 @@
 * Fix #7675: (mockwebserver) `MockWebServer.dispatcher` field marked `volatile` so a `setDispatcher(...)` call is reliably visible to the Vert.x request handler thread without further synchronization. `MockWebServer.reset()` Javadoc tightened to make its non-destructive contract explicit (no change to the running server, dispatcher, listeners, SSL/TLS state, port, or protocols)
 * Fix #7809: (kubernetes-client) Support for shard selectors for list and watch - including informers
 * Fix #7837: (kubernetes-client) Follow-ups on shard selector
+* Fix #7899: (kubernetes-client) Callback before re-list for Informers
 
 #### Dependency Upgrade
 * Fix #7849: bump istio.io/client-go from 1.29.2 to 1.30.0
